@@ -1,0 +1,255 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Night Drive — Countryside</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;overflow:hidden;background:#87ceeb;font-family:Arial,sans-serif;color:white}
+canvas{display:block}
+#hud{position:fixed;top:12px;left:12px;z-index:2;background:#10251ccc;padding:12px 16px;border-radius:12px}
+#speed{font-size:26px;font-weight:bold}
+#help{font-size:12px;margin-top:4px}
+#controls{position:fixed;bottom:18px;left:0;right:0;display:flex;justify-content:space-between;padding:0 18px;pointer-events:none}
+.group{display:flex;gap:12px;pointer-events:auto}
+button{width:68px;height:68px;border:2px solid #ffffff99;border-radius:18px;background:#172b32bb;color:white;font-size:27px;touch-action:none}
+button:active{background:#5caa7b}
+#pedals{display:flex;flex-direction:column;gap:8px}
+#pedals button{height:48px;font-size:15px;width:78px}
+#message{position:fixed;top:12px;right:12px;background:#10251ccc;padding:10px;border-radius:10px;font-size:12px}
+</style>
+</head>
+<body>
+<div id="hud">
+  <div>NIGHT DRIVE</div>
+  <div id="speed">0 km/h</div>
+  <div id="help">W/↑ accelerate · S/↓ brake · A/D steer</div>
+</div>
+<div id="message">COUNTRYSIDE · SUNNY</div>
+<div id="controls">
+  <div class="group">
+    <button id="left" aria-label="Steer left">◀</button>
+    <button id="right" aria-label="Steer right">▶</button>
+  </div>
+  <div id="pedals">
+    <button id="gas">GAS ▲</button>
+    <button id="brake">BRAKE</button>
+  </div>
+</div>
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x78c7fa);
+scene.fog = new THREE.Fog(0x9bd4fa, 100, 650);
+
+const camera = new THREE.PerspectiveCamera(72, innerWidth/innerHeight, .1, 1000);
+camera.position.set(0, 2.2, 5);
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.prepend(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0xd8efff, 0x65784a, 2));
+const sun = new THREE.DirectionalLight(0xfff3d4, 2.5);
+sun.position.set(-35, 70, 30);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024,1024);
+scene.add(sun);
+
+const mat=(color,roughness=1)=>new THREE.MeshStandardMaterial({color,roughness});
+const grassMat=mat(0x559447);
+const roadMat=mat(0x393d40);
+const lineMat=mat(0xf5e8bc);
+const whiteMat=mat(0xf2f1e8);
+const treeTrunk=mat(0x64422b);
+const leaves=[mat(0x246b36),mat(0x337e3e),mat(0x4a9146)];
+const hillMat=[mat(0x6caa58),mat(0x80b85e),mat(0x5e9a4f)];
+
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(2000,2000),grassMat);
+ground.rotation.x=-Math.PI/2; ground.position.y=-.12; ground.receiveShadow=true; scene.add(ground);
+
+// A repeating countryside road. Road centre bends smoothly in space.
+function roadX(z){return 4.8*Math.sin(z*.0035)+2.4*Math.sin(z*.009);}
+function makeBox(w,h,d,material,x,y,z){
+ const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),material);
+ m.position.set(x,y,z); m.castShadow=true; m.receiveShadow=true; scene.add(m); return m;
+}
+const roadSegments=[];
+for(let z=-850;z<180;z+=8){
+ const x=roadX(z);
+ const road=new THREE.Mesh(new THREE.BoxGeometry(11,.12,8.2),roadMat);
+ road.position.set(x,0,z); scene.add(road); roadSegments.push(road);
+ // road edge lines
+ for(const side of [-1,1]){
+  const edge=new THREE.Mesh(new THREE.BoxGeometry(.13,.025,8),whiteMat);
+  edge.position.set(x+side*5.15,.075,z); scene.add(edge);
+ }
+ if(Math.floor(z/8)%2===0){
+  const stripe=new THREE.Mesh(new THREE.BoxGeometry(.16,.025,3),lineMat);
+  stripe.position.set(x,.08,z); scene.add(stripe);
+ }
+}
+
+// Distant rolling green hills.
+for(let i=0;i<42;i++){
+ const side=i%2===0?-1:1;
+ const z=-850+Math.random()*1000;
+ const hill=new THREE.Mesh(new THREE.SphereGeometry(1,12,8),hillMat[i%hillMat.length]);
+ hill.scale.set(25+Math.random()*45,8+Math.random()*17,28+Math.random()*40);
+ hill.position.set( side*(35+Math.random()*85), 2+Math.random()*5,z);
+ scene.add(hill);
+}
+
+// Trees along the road, arranged in a repeating stretch.
+const trees=[];
+function createTree(x,z,scale=1){
+ const g=new THREE.Group();
+ const trunk=new THREE.Mesh(new THREE.CylinderGeometry(.22,.38,2.8,7),treeTrunk);
+ trunk.position.y=1.4; trunk.castShadow=true; g.add(trunk);
+ const crown=new THREE.Mesh(new THREE.ConeGeometry(1.6,3.6,7),leaves[Math.floor(Math.random()*leaves.length)]);
+ crown.position.y=3.7;crown.castShadow=true;g.add(crown);
+ const crown2=new THREE.Mesh(new THREE.ConeGeometry(1.25,2.7,7),leaves[Math.floor(Math.random()*leaves.length)]);
+ crown2.position.y=4.8;crown2.castShadow=true;g.add(crown2);
+ g.scale.setScalar(scale);g.position.set(x,0,z);scene.add(g);trees.push(g);
+}
+for(let z=-850;z<120;z+=12){
+ for(const side of [-1,1]){
+  const road=roadX(z);
+  createTree(road+side*(9+Math.random()*15),z+(Math.random()*4),.7+Math.random()*.75);
+ }
+}
+
+// Build a few traffic cars ahead. They move toward the player as the player drives.
+const traffic=[];
+const carColors=[0xc83f35,0xe7e9e7,0x235fbb,0xd5b746,0x333b43];
+function createTraffic(z,lane){
+ const g=new THREE.Group();
+ const paint=mat(carColors[Math.floor(Math.random()*carColors.length)],.45);
+ const body=new THREE.Mesh(new THREE.BoxGeometry(1.8,.65,3.6),paint);
+ body.position.y=.75;body.castShadow=true;g.add(body);
+ const cabin=new THREE.Mesh(new THREE.BoxGeometry(1.45,.65,1.65),mat(0x9ac6d5,.35));
+ cabin.position.set(0,1.28,-.15);g.add(cabin);
+ for(const x of [-.98,.98]) for(const zz of [-1.15,1.15]){
+  const wheel=new THREE.Mesh(new THREE.CylinderGeometry(.3,.3,.18,12),mat(0x202124));
+  wheel.rotation.z=Math.PI/2;wheel.position.set(x,.36,zz);g.add(wheel);
+ }
+ g.userData.lane=lane;
+ g.position.set(roadX(z)+lane,0,z);scene.add(g);traffic.push(g);
+}
+for(let i=0;i<7;i++)createTraffic(-65-i*42, i%2===0?-2.1:2.1);
+
+// Cockpit stays in front of the camera.
+const cockpit=new THREE.Group();camera.add(cockpit);scene.add(camera);
+makeCockpit();
+function makeCockpit(){
+ const dash=new THREE.Mesh(new THREE.BoxGeometry(2.8,.28,.65),mat(0x24282b));
+ dash.position.set(0,-.82,-1.35);cockpit.add(dash);
+ // Dashboard upper edge
+ const top=new THREE.Mesh(new THREE.BoxGeometry(2.7,.1,.55),mat(0x363b3e));
+ top.position.set(0,-.65,-1.48);cockpit.add(top);
+ // Steering wheel ring
+ const wheel=new THREE.Mesh(new THREE.TorusGeometry(.42,.065,12,40),mat(0x17191b));
+ wheel.position.set(0,-.72,-1.0);wheel.rotation.x=.15;cockpit.add(wheel);
+ const hub=new THREE.Mesh(new THREE.CylinderGeometry(.12,.12,.1,20),mat(0x303438));
+ hub.rotation.x=Math.PI/2;hub.position.set(0,-.72,-1.02);cockpit.add(hub);
+ const spokeMat=mat(0x1a1c1e);
+ for(let a=0;a<3;a++){
+  const spoke=new THREE.Mesh(new THREE.BoxGeometry(.055,.38,.07),spokeMat);
+  spoke.position.set(0,-.72,-1.01);spoke.rotation.z=a*2*Math.PI/3;cockpit.add(spoke);
+ }
+ // Windshield frame pillars
+ for(const s of [-1,1]){
+  const pillar=new THREE.Mesh(new THREE.BoxGeometry(.12,1.35,.14),mat(0x202326));
+  pillar.position.set(s*1.48,.05,-1.55);pillar.rotation.z=-s*.18;cockpit.add(pillar);
+ }
+ const roof=new THREE.Mesh(new THREE.BoxGeometry(3,.12,.15),mat(0x202326));
+ roof.position.set(0,.72,-1.52);cockpit.add(roof);
+ // Rear-view mirror
+ const mirror=new THREE.Mesh(new THREE.BoxGeometry(.62,.14,.08),mat(0x202326));
+ mirror.position.set(0,.53,-1.25);cockpit.add(mirror);
+ const glass=new THREE.Mesh(new THREE.BoxGeometry(.5,.075,.02),mat(0x647c85,.2));
+ glass.position.set(0,.53,-1.20);cockpit.add(glass);
+}
+
+// Player drives along the Z axis. Camera faces toward negative Z.
+let distance=0,speed=0,steer=0,carX=0,crashed=0;
+const keys={left:false,right:false,gas:false,brake:false};
+const keyMap={'ArrowLeft':'left','a':'left','ArrowRight':'right','d':'right','ArrowUp':'gas','w':'gas','ArrowDown':'brake','s':'brake'};
+addEventListener('keydown',e=>{const k=keyMap[e.key]||keyMap[e.key.toLowerCase()];if(k){keys[k]=true;e.preventDefault();}});
+addEventListener('keyup',e=>{const k=keyMap[e.key]||keyMap[e.key.toLowerCase()];if(k)keys[k]=false;});
+function bind(id,key){
+ const el=document.getElementById(id);
+ el.addEventListener('pointerdown',e=>{e.preventDefault();keys[key]=true;el.setPointerCapture(e.pointerId);});
+ const off=e=>{e.preventDefault();keys[key]=false;};
+ el.addEventListener('pointerup',off);el.addEventListener('pointercancel',off);el.addEventListener('lostpointercapture',()=>keys[key]=false);
+}
+bind('left','left');bind('right','right');bind('gas','gas');bind('brake','brake');
+
+const clock=new THREE.Clock();
+function update(dt){
+ // Speed and braking
+ if(keys.gas)speed+=22*dt;else speed-=5*dt;
+ if(keys.brake)speed-=34*dt;
+ speed=THREE.MathUtils.clamp(speed,0,48);
+ // Steering direction: left always decreases lateral offset.
+ const input=(keys.left?1:0)-(keys.right?1:0);
+ steer=THREE.MathUtils.damp(steer,input,.13,dt);
+ carX-=steer*speed*.045*dt;
+ carX=THREE.MathUtils.clamp(carX,-5.3,5.3);
+ distance+=speed*dt;
+ const z=-distance;
+ const centre=roadX(z);
+ camera.position.set(centre+carX,2.15,z+5);
+ camera.rotation.order='YXZ';
+ camera.rotation.y=-Math.atan2(roadX(z-8)-roadX(z+8),16)*.6;
+ camera.rotation.z=-steer*.025;
+ // Slight natural bounce
+ camera.position.y+=Math.sin(distance*.12)*.018*(speed/48);
+ document.getElementById('speed').textContent=Math.round(speed*3.6)+' km/h';
+
+ // Move scenery relative to player and recycle it to keep a continuous world.
+ for(const tree of trees){
+  while(tree.position.z>z+15)tree.position.z-=960;
+  while(tree.position.z<z-950)tree.position.z+=960;
+ }
+ for(const r of roadSegments){
+  while(r.position.z>z+8)r.position.z-=1024;
+  while(r.position.z<z-1010)r.position.z+=1024;
+ }
+ // Traffic: each vehicle is a solid obstacle, and collision stops the player briefly.
+ for(const car of traffic){
+  const rel=car.position.z-z;
+  if(rel>20)car.position.z-=700;
+  if(rel<-700)car.position.z+=700;
+  car.position.x=roadX(car.position.z)+car.userData.lane;
+  if(Math.abs(rel)<3.2 && Math.abs(car.position.x-(centre+carX))<1.8){
+   speed=0;
+   car.position.z-=5;
+  }
+ }
+ // Curved road edge slows the player instead of allowing endless off-road driving.
+ if(Math.abs(carX)>4.7)speed=Math.max(0,speed-18*dt);
+}
+function animate(){
+ requestAnimationFrame(animate);
+ const dt=Math.min(clock.getDelta(),.04);
+ update(dt);
+ renderer.render(scene,camera);
+}
+animate();
+
+addEventListener('resize',()=>{
+ camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
+ renderer.setSize(innerWidth,innerHeight);
+});
+</script>
+</body>
+  </html>
+  
